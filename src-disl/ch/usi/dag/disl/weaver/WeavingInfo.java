@@ -21,7 +21,6 @@ import ch.usi.dag.disl.snippet.Shadow;
 import ch.usi.dag.disl.snippet.Shadow.WeavingRegion;
 import ch.usi.dag.disl.snippet.Snippet;
 import ch.usi.dag.disl.util.MethodModelCopy;
-import ch.usi.dag.disl.util.WriteInfo;
 
 public class WeavingInfo {
 

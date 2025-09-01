@@ -1,7 +1,5 @@
 package ch.usi.dag.disl;
 
-import ch.usi.dag.disl.util.WriteInfo;
-
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.ClassHierarchyResolver;
 import java.net.*;
@@ -36,7 +34,7 @@ public class ClassLoaderFromJar {
             try {
                 urls.add(new URI("jar:file:" + path + "!/").toURL());
             } catch (Exception e) {
-                WriteInfo.getInstance().writeLine("Exception while creating URL for path: " + path);
+                throw new RuntimeException(e); // need to handle exception
             }
         }
         return new URLClassLoader(urls.toArray(URL[]::new));
