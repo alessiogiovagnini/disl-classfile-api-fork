@@ -1,8 +1,7 @@
 package ch.usi.dag.disl.marker;
 
+import ch.usi.dag.disl.util.MethodModelCopy;
 import java.util.List;
-
-import org.objectweb.asm.tree.MethodNode;
 
 /**
  * AbstractDWRMarker is an enhancement of AbstractMarker automatically computing
@@ -14,16 +13,14 @@ import org.objectweb.asm.tree.MethodNode;
  */
 public abstract class AbstractDWRMarker extends AbstractMarker {
 
-    public final List<MarkedRegion> mark(MethodNode methodNode) {
 
-        List<MarkedRegion> mrs = markWithDefaultWeavingReg(methodNode);
+    public final List<MarkedRegion> mark(MethodModelCopy methodModel) {
+        List<MarkedRegion> markedRegions = markWithDefaultWeavingReg(methodModel);
 
-        // automatically compute default weaving region
-        for (MarkedRegion mr : mrs) {
-            mr.setWeavingRegion(mr.computeDefaultWeavingRegion(methodNode));
+        for (MarkedRegion markedRegion: markedRegions) {
+            markedRegion.setWeavingRegion(markedRegion.computeDefaultWeavingRegion(methodModel));
         }
-
-        return mrs;
+        return markedRegions;
     }
 
     /**
@@ -35,6 +32,5 @@ public abstract class AbstractDWRMarker extends AbstractMarker {
      * <p>
      * The regions will get automatic branch skipping at the end.
      */
-    public abstract List<MarkedRegion> markWithDefaultWeavingReg(
-            MethodNode methodNode);
+    public abstract List<MarkedRegion> markWithDefaultWeavingReg(MethodModelCopy methodModel);
 }

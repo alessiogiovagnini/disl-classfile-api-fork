@@ -1,19 +1,19 @@
 package ch.usi.dag.disl;
 
 import java.io.IOException;
+import java.lang.constant.ClassDesc;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+import ch.usi.dag.disl.util.ClassFileAPI.ClassModelHelper;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.objectweb.asm.Type;
 
 import ch.usi.dag.disl.Reflection.Class;
 import ch.usi.dag.disl.Reflection.ClassLoader;
 import ch.usi.dag.disl.Reflection.MissingClassException;
-import ch.usi.dag.util.asm.ClassNodeHelper;
 
 
 /**
@@ -71,7 +71,7 @@ public final class ReflectionTest {
     private void __loadClass (final java.lang.Class <?> cls) {
         try {
             __scl.notifyClassLoaded (
-                ClassNodeHelper.OUTLINE.load (cls.getName ())
+                ClassModelHelper.DEFAULT.load (cls.getName ())
             );
         } catch (final IOException ioe) {
             throw new RuntimeException (ioe);
@@ -231,7 +231,7 @@ public final class ReflectionTest {
     public void leafClassImplementsMissingInterfaceType () {
         final Class leafClass = __getClass (LeafClass.class).get ();
         Assert.assertTrue (leafClass.interfaceTypes ().anyMatch (
-            it -> it.equals (Type.getType (Missable.class)))
+            it -> it.equals (ClassDesc.ofDescriptor (Missable.class.descriptorString())))
         );
     }
 
@@ -246,7 +246,7 @@ public final class ReflectionTest {
 
     //
 
-    final java.lang.Class <?> __globalClasses [] = {
+    final java.lang.Class<?>[] __globalClasses = {
         void.class,
         int.class, int[].class, int[][].class,
         Object.class, Object[].class, Object[][].class,
@@ -271,7 +271,7 @@ public final class ReflectionTest {
         for (final java.lang.Class <?> cl : __globalClasses) {
             Assert.assertEquals (
                 cl.getTypeName (),
-                __getClass (cl).get ().typeName ()
+                __getClass (cl).get ().typeName()
             );
         }
     }
@@ -292,6 +292,6 @@ public final class ReflectionTest {
     //
 
     private Optional <Class> __getClass (final java.lang.Class <?> cls) {
-        return __scl.classForType (Type.getType (cls));
+        return __scl.classForType (ClassDesc.ofDescriptor(cls.descriptorString()));
     }
 }

@@ -1,9 +1,8 @@
 package ch.usi.dag.disl.staticcontext.uid;
 
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
-
 import ch.usi.dag.disl.util.JavaNames;
+import ch.usi.dag.disl.util.MethodModelCopy;
+import java.lang.classfile.ClassModel;
 
 
 public abstract class AbstractMethodUid extends AbstractUniqueId {
@@ -28,10 +27,10 @@ public abstract class AbstractMethodUid extends AbstractUniqueId {
 
     @Override
     protected final String idFor () {
-        final ClassNode classNode = staticContextData.getClassNode ();
-        final MethodNode methodNode = staticContextData.getMethodNode ();
+        final ClassModel classNode = staticContextData.getClassModel();
+        final MethodModelCopy methodNode = staticContextData.getMethodModel();
 
-        return JavaNames.methodUniqueName (classNode.name, methodNode.name, methodNode.desc);
+        return JavaNames.methodUniqueName (classNode.thisClass().name().stringValue(), methodNode.methodName().stringValue(), methodNode.methodTypeSymbol().descriptorString());
     }
 
     @Override

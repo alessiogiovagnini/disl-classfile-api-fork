@@ -1,34 +1,31 @@
 package ch.usi.dag.disl.marker;
 
+import java.lang.classfile.CodeElement;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.MethodNode;
-
 import ch.usi.dag.disl.snippet.Shadow.WeavingRegion;
+import ch.usi.dag.disl.util.MethodModelCopy;
 
 
 abstract class AbstractInsnMarker extends AbstractMarker {
 
+
+    public abstract List<CodeElement> markInstruction(MethodModelCopy methodModel);
+
     @Override
-    public final List <MarkedRegion> mark (final MethodNode methodNode) {
-        final List <MarkedRegion> regions = new LinkedList <MarkedRegion> ();
+    public final List<MarkedRegion> mark(final MethodModelCopy methodModel) {
+        final List<MarkedRegion> regions = new LinkedList<>();
 
-        for (final AbstractInsnNode instruction : markInstruction (methodNode)) {
-            final MarkedRegion region = new MarkedRegion (instruction, instruction);
-            region.setWeavingRegion (new WeavingRegion (
-                instruction, new LinkedList <AbstractInsnNode> (region.getEnds ()),
-                instruction, instruction
+        for (final CodeElement instruction: markInstruction(methodModel)) {
+            final MarkedRegion region = new MarkedRegion(instruction, instruction);
+            region.setWeavingRegion(new WeavingRegion(
+                    instruction, new LinkedList<>(region.getEnds()),
+                    instruction, instruction
             ));
-
-            regions.add (region);
+            regions.add(region);
         }
-
         return regions;
     }
-
-
-    public abstract List <AbstractInsnNode> markInstruction (MethodNode methodNode);
 
 }

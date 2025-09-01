@@ -1,10 +1,10 @@
 package ch.usi.dag.disl.scope;
 
+import java.lang.classfile.TypeKind;
+import java.lang.constant.ClassDesc;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-
-import org.objectweb.asm.Type;
 
 import ch.usi.dag.disl.util.JavaNames;
 
@@ -51,7 +51,7 @@ abstract class TypeMatcher {
 
         private Generic (final WildCardMatcher matcher) {
             __matcher = matcher;
-         }
+        }
 
         //
 
@@ -73,17 +73,15 @@ abstract class TypeMatcher {
         private static final char __OBJECT_TYPE_CHAR__ = 'L';
 
         private boolean __isObjectType (final String descriptor) {
-            return descriptor.length () > 0 && descriptor.charAt (0) == __OBJECT_TYPE_CHAR__;
+            return !descriptor.isEmpty() && descriptor.charAt (0) == __OBJECT_TYPE_CHAR__;
         }
 
         private static final char __PKG_SEPARATOR_CHAR__ = '/';
 
         private static String __fixupDefaultPackage (final String descriptor) {
-            final StringBuilder result = new StringBuilder (descriptor.length () + 1);
-            result.append (descriptor.charAt (0));
-            result.append (__PKG_SEPARATOR_CHAR__);
-            result.append (descriptor.substring (1));
-            return result.toString ();
+            return String.valueOf(descriptor.charAt(0)) +
+                    __PKG_SEPARATOR_CHAR__ +
+                    descriptor.substring(1);
         }
 
         //
@@ -110,7 +108,7 @@ abstract class TypeMatcher {
         } else {
             final String descPattern = __getDescriptorPattern (trimmed);
             final WildCardMatcher matcher = WildCardMatcher.forPattern (
-                JavaNames.typeToInternal (descPattern)
+                    JavaNames.typeToInternal (descPattern)
             );
 
             return new Generic (matcher);
@@ -131,9 +129,7 @@ abstract class TypeMatcher {
             final StringBuilder result = new StringBuilder ();
 
             final int dimensions = 1 + __getDimensionCount (input, firstPosition + __ARRAY_BRACKETS_LENGTH__);
-            for (int i = dimensions; i > 0; i--) {
-                result.append ("[");
-            }
+            result.append ("[".repeat(Math.max(0, dimensions)));
 
             final String typeName = input.substring (0, firstPosition);
             result.append (__getTypeDescriptor (typeName));
@@ -161,17 +157,16 @@ abstract class TypeMatcher {
     }
 
 
-    @SuppressWarnings ("serial")
-    private static final Map <String, Type> __PRIMITIVES__ = new HashMap <String, Type> () {{
-        put ("void", Type.VOID_TYPE);
-        put ("boolean", Type.BOOLEAN_TYPE);
-        put ("byte", Type.BYTE_TYPE);
-        put ("char", Type.CHAR_TYPE);
-        put ("short", Type.SHORT_TYPE);
-        put ("int", Type.INT_TYPE);
-        put ("float", Type.FLOAT_TYPE);
-        put ("long", Type.LONG_TYPE);
-        put ("double", Type.DOUBLE_TYPE);
+    private static final Map <String, TypeKind> __PRIMITIVES__ = new HashMap<>() {{
+        put("void", TypeKind.VOID);
+        put("boolean", TypeKind.BOOLEAN);
+        put("byte", TypeKind.BYTE);
+        put("char", TypeKind.CHAR);
+        put("short", TypeKind.SHORT);
+        put("int", TypeKind.INT);
+        put("float", TypeKind.FLOAT);
+        put("long", TypeKind.LONG);
+        put("double", TypeKind.DOUBLE);
     }};
 
     private static String __getTypeDescriptor (final String input) {
@@ -185,13 +180,19 @@ abstract class TypeMatcher {
 
         //
 
-        final Type primitiveType = __PRIMITIVES__.get (input);
+        final TypeKind primitiveType = __PRIMITIVES__.get (input);
         if (primitiveType == null) {
             final String fqcn = __getClassName (input);
-            return Type.getObjectType (fqcn).getDescriptor ();
-
+            try {
+                ClassDesc obj = ClassDesc.ofInternalName(fqcn);
+                return obj.descriptorString();
+            } catch (Exception e) {
+                // this might not seem correct, but otherwise the original tests do not pass.
+                // this was done to preserve the original behaviour
+                return "L" + fqcn + ";";
+            }
         } else {
-            return primitiveType.getDescriptor ();
+            return primitiveType.upperBound().descriptorString();
         }
     }
 

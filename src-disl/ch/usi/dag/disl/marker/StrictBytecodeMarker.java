@@ -1,15 +1,15 @@
 package ch.usi.dag.disl.marker;
 
+import java.lang.classfile.CodeElement;
+import java.lang.classfile.Instruction;
+import java.lang.classfile.Opcode;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.MethodNode;
-
 import ch.usi.dag.disl.exception.MarkerException;
-import ch.usi.dag.disl.util.AsmOpcodes;
+import ch.usi.dag.disl.util.MethodModelCopy;
 
 /**
  * <p>
@@ -34,15 +34,15 @@ public class StrictBytecodeMarker extends AbstractInsnMarker {
 
             try {
 
-                AsmOpcodes opcode = AsmOpcodes.valueOf(instr.trim()
+                Opcode opcode = Opcode.valueOf(instr.trim()
                         .toUpperCase());
-                searchedInstrNums.add(opcode.getNumber());
+                searchedInstrNums.add(opcode.bytecode());
             } catch (IllegalArgumentException e) {
 
                 throw new MarkerException("Instruction \"" + instr
                         + "\" cannot be found. See "
-                        + AsmOpcodes.class.getName()
-                        + " enum for list of possible instructions");
+                        + " the java.lang.classfile.Opcode class"
+                        + " for list of possible instructions");
             }
         }
 
@@ -53,19 +53,21 @@ public class StrictBytecodeMarker extends AbstractInsnMarker {
         }
     }
 
+
     @Override
-    public List<AbstractInsnNode> markInstruction(MethodNode method) {
+    public List<CodeElement> markInstruction(MethodModelCopy methodModel) {
+        List<CodeElement> selected = new LinkedList<>();
 
-        List<AbstractInsnNode> seleted = new LinkedList<AbstractInsnNode>();
+        if (!methodModel.hasCode()) {
+            return selected;
+        }
 
-        for (AbstractInsnNode instruction : method.instructions.toArray()) {
-
-            if (searchedInstrNums.contains(instruction.getOpcode())) {
-
-                seleted.add(instruction);
+        for (CodeElement codeElement: methodModel.instructions()) {
+            if (codeElement instanceof Instruction && searchedInstrNums.contains(((Instruction) codeElement).opcode().bytecode())) {
+                selected.add(codeElement);
             }
         }
 
-        return seleted;
+        return selected;
     }
 }

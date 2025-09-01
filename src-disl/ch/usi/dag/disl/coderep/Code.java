@@ -1,17 +1,17 @@
 package ch.usi.dag.disl.coderep;
 
+import java.lang.classfile.CodeElement;
+import java.lang.classfile.instruction.ExceptionCatch;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-import org.objectweb.asm.tree.InsnList;
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.TryCatchBlockNode;
-
 import ch.usi.dag.disl.localvar.LocalVars;
 import ch.usi.dag.disl.localvar.SyntheticLocalVar;
 import ch.usi.dag.disl.localvar.ThreadLocalVar;
-import ch.usi.dag.disl.util.AsmHelper;
+import ch.usi.dag.disl.util.ClassFileHelper;
+import ch.usi.dag.disl.util.MethodModelCopy;
 
 
 /**
@@ -23,7 +23,7 @@ import ch.usi.dag.disl.util.AsmHelper;
 public class Code {
 
     /** A method representing the code template. */
-    private final MethodNode __method;
+    private MethodModelCopy __method;
 
     /** Synthetic-local variables referenced by the code template. */
     private final Set <SyntheticLocalVar> __syntheticLocals;
@@ -44,7 +44,7 @@ public class Code {
     //
 
     public Code (
-        final MethodNode method,
+        final MethodModelCopy method,
         final Set <SyntheticLocalVar> syntheticLocals,
         final Set <ThreadLocalVar> threadLocals,
         final Set <StaticContextMethod> staticContextMethods,
@@ -61,7 +61,10 @@ public class Code {
 
 
     private Code (final Code that) {
-        __method = AsmHelper.cloneMethod (that.__method);
+        // In the original version the MethodNode is cloned with a helper, since the classFile do not allow
+        // to clone code I implemented a method in MethodModelCopy that should duplicate the array of instructions
+        // (not the instructions themselves)
+        __method = that.__method.duplicate();
 
         // The following immutables can be shared.
         __syntheticLocals = that.__syntheticLocals;
@@ -75,21 +78,31 @@ public class Code {
     /**
      * @return An ASM instruction list.
      */
-    public InsnList getInstructions () {
-        return __method.instructions;
+    public List<CodeElement> getInstructions () {
+        if (!__method.hasCode()) {
+            return new ArrayList<>();
+        }
+        return __method.instructions();
+    }
+
+    public MethodModelCopy getMethod() {
+        return this.__method;
     }
 
 
     /**
      * @return A list of try-catch blocks (as represented in ASM).
      */
-    public List <TryCatchBlockNode> getTryCatchBlocks () {
-        return __method.tryCatchBlocks;
+    public List <ExceptionCatch> getTryCatchBlocks () {
+        if (!__method.hasCode()) {
+            return new ArrayList<>();
+        }
+        return __method.exceptionHandlers();
     }
 
 
     /**
-     * @returns An unmodifiable set of all synthetic local variables referenced
+     * @return An unmodifiable set of all synthetic local variables referenced
      *          in the code.
      */
     public Set <SyntheticLocalVar> getReferencedSLVs () {
@@ -129,7 +142,7 @@ public class Code {
      *         representing this code.
      */
     public int getParameterSlotCount () {
-        return AsmHelper.getParameterSlotCount (__method);
+        return ClassFileHelper.getParameterSlotCount(__method);
     }
 
     //
@@ -140,6 +153,12 @@ public class Code {
     @Override
     public Code clone () {
         return new Code (this);
+    }
+
+
+    // this is needed in case the code of the method is transformed, the ClassFile api do not allow editing methods, but a new method of a new class must be created
+    public void setNewMethod(MethodModelCopy newMethod) {
+        this.__method = newMethod;
     }
 
 }

@@ -1,5 +1,6 @@
 package ch.usi.dag.dislreserver.shadow;
 
+import java.lang.constant.ClassDesc;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -15,7 +16,6 @@ import org.junit.experimental.theories.PotentialAssignment;
 import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
-import org.objectweb.asm.Type;
 
 
 @RunWith (Theories.class)
@@ -56,14 +56,13 @@ public class LambdaShadowClassTest extends ShadowClassTestBase {
         return __newShadowClass (type, null);
     }
 
-
     private static ShadowClass __newShadowClass (
         final Class <?> type, final ShadowClass superclass
     ) {
         return __classCache__.computeIfAbsent (
             type, t -> new LambdaShadowClass (
                 __uniqueId__.getAndIncrement (),
-                Type.getType (t), null, superclass
+                t.descriptorString(), null, superclass
             )
         );
     }

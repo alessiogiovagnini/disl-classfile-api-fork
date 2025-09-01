@@ -1,6 +1,7 @@
 package ch.usi.dag.disl.localvar;
 
-import org.objectweb.asm.Type;
+import java.lang.classfile.TypeKind;
+import java.lang.constant.ClassDesc;
 
 
 public abstract class AbstractLocalVar {
@@ -13,16 +14,13 @@ public abstract class AbstractLocalVar {
 
     private final String fieldName;
 
-    private final Type type;
+    private final ClassDesc typeDesc;
 
-    //
 
-    public AbstractLocalVar (
-        final String className, final String fieldName, final Type type
-    ) {
+    public AbstractLocalVar(final String className, final String fieldName, final ClassDesc typeDesc) {
         this.className = className;
         this.fieldName = fieldName;
-        this.type = type;
+        this.typeDesc = typeDesc;
     }
 
 
@@ -40,12 +38,15 @@ public abstract class AbstractLocalVar {
         return fieldName;
     }
 
-    public Type getType () {
-        return type;
+
+    public ClassDesc getType() {return typeDesc;}
+
+    public TypeKind getTypeKind() {
+        return TypeKind.fromDescriptor(typeDesc.descriptorString());
     }
 
     public String getDescriptor () {
-        return type.getDescriptor ();
+        return typeDesc.descriptorString();
     }
 
     //

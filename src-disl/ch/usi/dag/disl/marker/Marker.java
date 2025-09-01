@@ -1,13 +1,12 @@
 package ch.usi.dag.disl.marker;
 
+import java.lang.classfile.ClassModel;
 import java.util.List;
-
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
 
 import ch.usi.dag.disl.exception.MarkerException;
 import ch.usi.dag.disl.snippet.Shadow;
 import ch.usi.dag.disl.snippet.Snippet;
+import ch.usi.dag.disl.util.MethodModelCopy;
 
 /**
  * <p>
@@ -74,15 +73,14 @@ public interface Marker {
      * <p>
      * Returns shadows for the marked method.
      *
-     * @param classNode
+     * @param classModel
      *            represents class being marked
-     * @param methodNode
+     * @param methodModel
      *            represents method being marked
      * @param snippet
      *            snippet defining the marker
      * @return
      *         list of shadows for marked method
      */
-    List<Shadow> mark(ClassNode classNode, MethodNode methodNode,
-            Snippet snippet) throws MarkerException;
+    List<Shadow> mark(ClassModel classModel, MethodModelCopy methodModel, Snippet snippet) throws MarkerException;
 }

@@ -1,15 +1,19 @@
 package ch.usi.dag.disl.staticcontext;
 
+import ch.usi.dag.disl.util.ClassFileHelper;
+import ch.usi.dag.disl.util.MethodModelCopy;
+import ch.usi.dag.disl.util.cfgCF.BasicBlockCF;
+import ch.usi.dag.disl.util.cfgCF.ControlFlowGraph;
+
+import java.lang.classfile.CodeElement;
+import java.lang.classfile.Label;
+import java.lang.classfile.instruction.ExceptionCatch;
+import java.lang.classfile.instruction.LabelTarget;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.TryCatchBlockNode;
-
-import ch.usi.dag.disl.util.cfg.BasicBlock;
-import ch.usi.dag.disl.util.cfg.CtrlFlowGraph;
 
 /**
  * <b>NOTE: This class is work in progress</b>
@@ -19,25 +23,27 @@ import ch.usi.dag.disl.util.cfg.CtrlFlowGraph;
  */
 public class LoopStaticContext extends BasicBlockStaticContext {
 
-    private Map<BasicBlock, Set<BasicBlock>> dominatormapping;
+    private Map<BasicBlockCF, Set<BasicBlockCF>> dominatormapping;
 
     @Override
-    protected CtrlFlowGraph createControlFlowGraph(final MethodNode method) {
+    protected ControlFlowGraph createControlFlowGraph(final MethodModelCopy method) {
 
-        CtrlFlowGraph cfg = CtrlFlowGraph.build(method);
+        ControlFlowGraph cfg = ControlFlowGraph.build(method.instructions(), method.exceptionHandlers());
 
-        dominatormapping = new HashMap<BasicBlock, Set<BasicBlock>>();
+        dominatormapping = new HashMap<BasicBlockCF, Set<BasicBlockCF>>();
 
-        Set<BasicBlock> entries = new HashSet<BasicBlock>();
-        entries.add(cfg.getBB(method.instructions.getFirst()));
+        Set<BasicBlockCF> entries = new HashSet<>();
+        entries.add(cfg.getBasicBlock(method.instructions().getFirst()));
 
-        for (TryCatchBlockNode tcb : method.tryCatchBlocks) {
-            entries.add(cfg.getBB(tcb.handler));
+        Map<Label, CodeElement> labelTargetMap = ClassFileHelper.getLabelTargetMap(method.instructions());
+
+        for (ExceptionCatch tcb : method.exceptionHandlers()) {
+            entries.add(cfg.getBasicBlock(labelTargetMap.get(tcb.handler())));
         }
 
-        for (BasicBlock bb : cfg.getNodes()) {
+        for (BasicBlockCF bb : cfg.getNodes()) {
 
-            Set<BasicBlock> dominators = new HashSet<BasicBlock>();
+            Set<BasicBlockCF> dominators = new HashSet<>();
 
             if (entries.contains(bb)) {
                 dominators.add(bb);
@@ -55,18 +61,18 @@ public class LoopStaticContext extends BasicBlockStaticContext {
         do {
             changed = false;
 
-            for (BasicBlock bb : cfg.getNodes()) {
+            for (BasicBlockCF bb : cfg.getNodes()) {
 
                 if (entries.contains(bb)) {
                     continue;
                 }
 
-                Set<BasicBlock> dominators = dominatormapping.get(bb);
+                Set<BasicBlockCF> dominators = dominatormapping.get(bb);
                 dominators.remove(bb);
 
                 // update the dominators of current basic block,
                 // contains only the dominators of its predecessors
-                for (BasicBlock predecessor : bb.getPredecessors()) {
+                for (BasicBlockCF predecessor : bb.getPredecessor()) {
 
                     if (dominators.retainAll(dominatormapping.get(predecessor))) {
                         changed = true;
@@ -85,9 +91,9 @@ public class LoopStaticContext extends BasicBlockStaticContext {
      */
     public boolean isFirstOfLoop() {
 
-        BasicBlock entry = _getMethodCfg ().getBB(staticContextData.getRegionStart());
+        BasicBlockCF entry = _getMethodCfg ().getBasicBlock(staticContextData.getRegionStart());
 
-        for (BasicBlock bb : entry.getPredecessors()) {
+        for (BasicBlockCF bb : entry.getPredecessor()) {
             if (dominatormapping.get(bb).contains(entry)) {
                 return true;
             }

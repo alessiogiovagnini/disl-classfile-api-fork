@@ -8,33 +8,35 @@ public final class DynamicBypass {
     //
 
     public static boolean isActive () {
-        return Thread.currentThread ().bypass;
+
+         return Thread.currentThread ().bypass;
     }
 
 
     public static void activate () {
-        if (debug) {
-            // bypass should be disabled in this state
-            if (Thread.currentThread ().bypass) {
-                throw new RuntimeException (
-                    "fatal error: dynamic bypass activated twice");
-            }
-        }
+        Thread current = Thread.currentThread ();
+        try {
 
-        Thread.currentThread ().bypass = true;
+            Thread.currentThread ().bypass = true;
+
+
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
 
     public static void deactivate () {
-        if (debug) {
-            // bypass should be enabled in this state
-            if (!Thread.currentThread ().bypass) {
-                throw new RuntimeException (
-                    "fatal error: dynamic bypass deactivated twice");
-            }
-        }
+        Thread current = Thread.currentThread ();
+        try {
 
-        Thread.currentThread ().bypass = false;
+            Thread.currentThread ().bypass = false;
+
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
 }

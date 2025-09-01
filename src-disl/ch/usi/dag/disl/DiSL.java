@@ -3,27 +3,13 @@ package ch.usi.dag.disl;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.annotation.Native;
-import java.util.Collection;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Properties;
-import java.util.Set;
+import java.lang.classfile.*;
+import java.lang.constant.ClassDesc;
+import java.lang.reflect.AccessFlag;
+import java.util.*;
 import java.util.stream.Collectors;
-
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
-
 import ch.usi.dag.disl.classparser.DislClasses;
 import ch.usi.dag.disl.exception.DiSLException;
-import ch.usi.dag.disl.exception.DiSLInMethodException;
 import ch.usi.dag.disl.localvar.SyntheticLocalVar;
 import ch.usi.dag.disl.localvar.ThreadLocalVar;
 import ch.usi.dag.disl.processor.generator.PIResolver;
@@ -34,10 +20,11 @@ import ch.usi.dag.disl.scope.Scope;
 import ch.usi.dag.disl.snippet.Shadow;
 import ch.usi.dag.disl.snippet.Snippet;
 import ch.usi.dag.disl.staticcontext.generator.SCGenerator;
-import ch.usi.dag.disl.util.Logging;
+import ch.usi.dag.disl.util.*;
 import ch.usi.dag.disl.weaver.Weaver;
-import ch.usi.dag.util.asm.ClassNodeHelper;
 import ch.usi.dag.util.logging.Logger;
+
+import static java.lang.constant.ConstantDescs.CD_boolean;
 
 
 /**
@@ -61,6 +48,11 @@ public final class DiSL {
     private final Set <Scope> __excludedScopes;
 
     private final DislClasses __dislClasses;
+
+    // TODO make these variables set by a config or a parameter passed at application launch
+    private boolean verifyClass = false;
+    private boolean loadExtraClasses = false;
+    private boolean dropStackMap = false;
 
 
     /**
@@ -145,6 +137,8 @@ public final class DiSL {
         final Set <Scope> excludedScopes = ExclusionSet.prepare (resources.instrumentationResources ());
         final DislClasses dislClasses = DislClasses.load (codeOptions, resources.dislClasses ());
 
+        //resources.serialize("serialized.txt");
+
         // TODO put checker here
         // like After should catch normal and abnormal execution
         // but if you are using After (AfterThrowing) with BasicBlockMarker
@@ -161,7 +155,7 @@ public final class DiSL {
      * Derives code options from global properties. This is a transitional
      * compatibility method for the transition to per-request code options.
      */
-    private static Set <CodeOption> __codeOptionsFrom (
+    public static Set <CodeOption> __codeOptionsFrom (
         final Properties properties
     ) {
         final Set <CodeOption> result = EnumSet.noneOf (CodeOption.class);
@@ -193,102 +187,82 @@ public final class DiSL {
 
 
     /**
-     * Instruments a method in a class. <b>Note:</b> This method changes the
-     * {@code classNode} arugment.
+     * Instruments a method in a class.
      *
-     * @param classNode
+     * @param classModel
      *        class that will be instrumented
-     * @param methodNode
-     *        method in the classNode argument, that will be instrumented
+     * @param methodModel
+     *        method in the classModel argument, that will be instrumented
+     * @param classBuilder
+     *        the builder that will build the instrumented class
      * @return {@code true} if the methods was changed, {@code false} otherwise.
      */
-    private boolean instrumentMethod (
-        final ClassNode classNode, final MethodNode methodNode
-    ) throws DiSLException {
-
-        // skip abstract methods
-        if ((methodNode.access & Opcodes.ACC_ABSTRACT) != 0) {
-            return false;
+    private boolean instrumentMethod(ClassModel classModel, MethodModelCopy methodModel, ClassBuilder classBuilder) throws DiSLException {
+        if (methodModel.flags().has(AccessFlag.ABSTRACT) ||
+                methodModel.flags().has(AccessFlag.NATIVE)
+        ) {
+            return false; // skip abstract and native methods
         }
 
-        // skip native methods
-        if ((methodNode.access & Opcodes.ACC_NATIVE) != 0) {
-            return false;
-        }
+        final String className = classModel.thisClass().name().stringValue();
+        final String methodName = methodModel.methodName().stringValue();
+        final String methodDesc = methodModel.methodTypeSymbol().descriptorString();
 
-        final String className = classNode.name;
-        final String methodName = methodNode.name;
-        final String methodDesc = methodNode.desc;
-
-        // evaluate exclusions
-        // TODO LB: Add support for inclusion
+        // evaluate exclusions  TODO LB: Add support for inclusion
         final Optional <Scope> excludeMatch = __excludedScopes.stream ()
-            .filter (ex -> ex.matches (className, methodName, methodDesc))
-            .findFirst ();
+                .filter (ex -> ex.matches (className, methodName, methodDesc))
+                .findFirst ();
 
         if (excludeMatch.isPresent ()) {
             __log.debug ("excluded %s.%s%s via %s", className, methodName, methodDesc, excludeMatch.get ());
             return false;
         }
 
-
-        //
-        // Find snippets with a scope matching the class and methods being
-        // instrumented. If there are no such snippets, there is nothing to
-        // instrument and we can bail out early.
-        //
+        // Find snippets with a scope matching the class and methods being instrumented.
+        // If there are no such snippets, there is nothing to instrument, and we can bail out early.
         final List <Snippet> matchingSnippets = __dislClasses.selectMatchingSnippets (
-            className, methodName, methodDesc
+                className, methodName, methodDesc
         );
-
         if (matchingSnippets.isEmpty ()) {
             __log.debug ("skipping unaffected method: %s.%s%s",
-                className, methodName, methodDesc);
+                    className, methodName, methodDesc);
             return false;
         }
 
-
-        //
-        // Apply markers to class methods to receive a list of shadows which
-        // represent the individual instances of a snippet. Filter the initial
-        // list of shadows through guards and collect snippets that have
-        // at least one applicable shadow.
-        //
+        // Apply markers to class methods to receive a list of shadows which represent the individual instances of a snippet.
+        // Filter the initial list of shadows through guards and collect snippets that have at least one applicable shadow.
         final Map<Snippet, List<Shadow>> applicableSnippets = new HashMap <> ();
-        for (final Snippet snippet : matchingSnippets) {
-            __log.trace ("\tsnippet: %s.%s()",
-                snippet.getOriginClassName (), snippet.getOriginMethodName ());
+        for (final Snippet snippet: matchingSnippets) {
+            __log.trace ("\tsnippet: %s.%s()", snippet.getOriginClassName (), snippet.getOriginMethodName ());
 
-            final List <Shadow> applicableShadows = snippet.selectApplicableShadows (classNode, methodNode);
+            final List<Shadow> applicableShadows = snippet.selectApplicableShadows(classModel, methodModel);
             __log.trace ("\tapplicable shadows: %d", applicableShadows.size ());
 
-            if (!applicableShadows.isEmpty ()) {
-                applicableSnippets.put (snippet, applicableShadows);
+            if (!applicableShadows.isEmpty()) {
+                applicableSnippets.put(snippet, applicableShadows);
             }
+
         }
 
         // *** compute static info ***
-
         __log.trace ("calculating static information for method: %s.%s%s",
-            className, methodName, methodDesc);
+                className, methodName, methodDesc);
 
         // prepares SCGenerator class (computes static context)
         final SCGenerator staticInfo = SCGenerator.computeStaticInfo (applicableSnippets);
 
         // *** used synthetic and thread-local vars in snippets ***
-
         __log.trace ("finding locals used by method: %s.%s%s",
-            className, methodName, methodDesc);
+                className, methodName, methodDesc);
 
         final Set <SyntheticLocalVar> usedSLVs = __collectReferencedSLVs (applicableSnippets.keySet ());
         final Set <ThreadLocalVar> usedTLVs = __collectReferencedTLVs (applicableSnippets.keySet ());
 
         // *** prepare processors ***
-
         __log.trace ("preparing argument processors for method: %s.%s%s",
-            className, methodName, methodDesc);
+                className, methodName, methodDesc);
 
-        final PIResolver piResolver = new ProcGenerator ().compute (applicableSnippets);
+        final PIResolver piResolver = new ProcGenerator().compute(applicableSnippets);
 
         // *** used synthetic local vars in processors ***
 
@@ -301,20 +275,20 @@ public final class DiSL {
 
         // *** weaving ***
 
-        if (applicableSnippets.size () > 0) {
+        if (!applicableSnippets.isEmpty()) {
             __log.debug ("found %d snippet marking(s), weaving method: %s.%s%s",
-                applicableSnippets.size (), className, methodName, methodDesc);
+                    applicableSnippets.size (), className, methodName, methodDesc);
 
             Weaver.instrument (
-                classNode, methodNode, applicableSnippets,
-                usedSLVs, usedTLVs, staticInfo, piResolver
+                    classModel, methodModel, classBuilder, applicableSnippets,
+                    usedSLVs, usedTLVs, staticInfo, piResolver
             );
 
             return true;
 
         } else {
             __log.debug ("found %d snippet marking(s), skipping method: %s.%s%s",
-                applicableSnippets.size (), className, methodName, methodDesc);
+                    0, className, methodName, methodDesc);
 
             return false;
         }
@@ -354,106 +328,131 @@ public final class DiSL {
      * Data holder for an instrumented class
      */
     private static class InstrumentedClass {
-        final ClassNode classNode;
         final Set <String> changedMethods;
 
+        final ClassModel originalClassModel;
+        byte[] instrumentedClassBytes;
 
-        public InstrumentedClass (
-            final ClassNode classNode, final Set <String> changedMethods
-        ) {
-            this.classNode = classNode;
+        public InstrumentedClass(ClassModel original, final Set<String> changedMethods, byte[] instrumentedClass) {
+            this.originalClassModel = original;
             this.changedMethods = changedMethods;
+            this.instrumentedClassBytes = instrumentedClass;
         }
     }
 
 
     /**
-     * Instruments class node.
-     *
+     * Instruments class model.
      * Note: This method is thread safe. Parameter classNode is changed during
      * the invocation.
      *
-     * @param classNode
-     *            class node to instrument
+     * @param classModel
+     *            class model to instrument
      * @return instrumented class
      */
-    private InstrumentedClass instrumentClass (
-        ClassNode classNode
-    ) throws DiSLException {
-        //
-        // Track changed classes methods. A class can be actually changed
-        // without changing any methods, i.e., adding thread-local fields
-        // to the Thread class.
-        //
-        boolean classChanged = false;
-        final Set <String> changedMethods = new HashSet <> ();
-
-        //
-        // Instrument each method of the given class. Intercept any
-        // exceptions and propagate them upwards with the name of the
-        // method in which instrumentation failed.
-        //
-        for (final MethodNode methodNode : classNode.methods) {
-            boolean methodChanged = false;
-
-            try {
-                __log.trace (
-                    "processing method: %s.%s%s",
-                    classNode.name, methodNode.name, methodNode.desc
-                );
-
-                methodChanged = instrumentMethod (classNode, methodNode);
-
-            } catch (final DiSLException e) {
-                throw new DiSLInMethodException (
-                    classNode.name + "." + methodNode.name, e);
-            }
-
-            if (methodChanged) {
-                changedMethods.add (methodNode.name + methodNode.desc);
-                classChanged = true;
-            }
+    private InstrumentedClass instrumentClass(ClassModel classModel) throws DiSLException {
+        Set<ClassFile.Option> options = new HashSet<>();
+        if (loadExtraClasses) {
+            // TODO for now the path to extra classes are hard-coded, need to change so that they can be loaded at start-up with some arguments
+            options.add(ClassLoaderFromJar.getTestResOption());
         }
-
-        //
-        // If the instrumented class is the Thread class, add fields that
-        // will provide thread-local variables to the code in the snippets.
-        //
-        if (Type.getInternalName (Thread.class).equals (classNode.name)) {
-            // get all thread locals in snippets
-            final Set <ThreadLocalVar> tlvs = __collectReferencedTLVs (__dislClasses.getSnippets ());
-
-            // dynamic bypass
-            if (__codeOptions.contains (CodeOption.DYNAMIC_BYPASS)) {
-                tlvs.add (__createBypassTlv ());
-            }
-
-            if (!tlvs.isEmpty ()) {
-                // instrument fields
-                final ClassNode cnWithFields = new ClassNode (Opcodes.ASM9);
-                classNode.accept (new TLVInserter (cnWithFields, tlvs));
-
-                // replace original code with instrumented one
-                classNode = cnWithFields;
-                classChanged = true;
-            }
+        if (dropStackMap) {
+            options.add(ClassFile.StackMapsOption.DROP_STACK_MAPS);
         }
+        final Set <String> changedMethods = new HashSet<>();
+        // TODO also here might use ClassModelHelper to pass some options
+        try {
+            byte[] instrumentedClass = ClassFile.of(options.toArray(ClassFile.Option[]::new)).build(classModel.thisClass().asSymbol(), classBuilder -> {
+                for (ClassElement classElement: classModel) {
+                    if (Objects.requireNonNull(classElement) instanceof MethodModel methodModel) {
+                        boolean methodChanged;
 
-        // we have changed some methods
-        return classChanged ?
-            new InstrumentedClass (classNode, changedMethods) :
-            null;
+                        MethodModelCopy methodModelCopy = new MethodModelCopy(methodModel);
+                        try {
+                            methodChanged = instrumentMethod(classModel, methodModelCopy, classBuilder);
+                        } catch (DiSLException e) {
+                            throw new RuntimeException(e);
+                        }
+
+                        if (!methodChanged) {
+                                classBuilder.with(methodModel); // if the method was not changed then add it back like the original
+                        } else {
+                            changedMethods.add(ClassFileHelper.nameAndDescriptor(methodModel));
+                        }
+
+                    } else {
+                        classBuilder.with(classElement); // add all other elements as the original
+                    }
+                }
+            });
+
+            byte[] instrumentedThread = null;
+            if (classModel.thisClass().asSymbol().descriptorString().equals(Thread.class.descriptorString())) {
+                // If the instrumented class is the Thread class, add fields that
+                // will provide thread-local variables to the code in the snippets.
+                ClassModel instrumented = ClassFile.of().parse(instrumentedClass);
+
+                final Set<ThreadLocalVar> tlvs = __collectReferencedTLVs(__dislClasses.getSnippets());
+                if (__codeOptions.contains(CodeOption.DYNAMIC_BYPASS)) {
+                    tlvs.add(__createBypassTlv());
+                }
+
+                instrumentedThread = ClassFile.of().build(instrumented.thisClass().asSymbol(), classBuilder -> {
+
+                    for (ThreadLocalVar tlv: tlvs) {
+                        // add a new field for each tlv
+                        classBuilder.withField(tlv.getName(), ClassDesc.ofDescriptor(tlv.getDescriptor()), AccessFlag.PUBLIC.mask());
+                    }
+
+                    for (ClassElement classElement: instrumented) {
+                        if (classElement instanceof MethodModel methodModel && JavaNames.isConstructorName(methodModel.methodName().stringValue())) {
+                            // if is a constructor add the initialization code
+                            ClassFileTLVInserter.insertThreadLocalVariables(tlvs, classBuilder, methodModel);
+                        } else {
+                            classBuilder.with(classElement);
+                        }
+                    }
+                });
+            }
+
+            boolean classChanged = !changedMethods.isEmpty();
+
+            if (instrumentedThread != null && instrumentedThread.length > 0) {
+                classChanged = true;
+                instrumentedClass = instrumentedThread;
+            }
+
+            return classChanged? new InstrumentedClass(classModel, changedMethods, instrumentedClass): null;
+        } catch (Exception e) {
+//            WriteInfo info = WriteInfo.getInstance();
+//            if (e.getMessage() == null) {
+//                info.writeLine("An exception occurred: somehow the message from the exception is null ");
+//                throw new RuntimeException(e);
+//            }
+//            List<VerifyError> errors = ClassFile.of().verify(classModel);
+//            info.writeLine(">>>>>> Exception in instrumentClass for class: " + classModel.thisClass().name() + " the class has: " + errors.size() + " verifyError");
+//            info.writeLine("Message: " + e.getMessage());
+////            info.writeLine(String.valueOf(e.getClass()));
+//            for ( StackTraceElement element: e.getStackTrace()) {
+//                info.writeLine(element.toString());
+//            }
+//            info.writeLine("<<< Exception end");
+
+//            info.writeLine(">>> Verify Errors for class: " + classModel.thisClass().name());
+//            for (VerifyError error: errors) {
+//                info.writeLine(error.getMessage());
+//            }
+//            info.writeLine("<<< End list of VerifyErrors");
+            throw new RuntimeException(e);
+        }
     }
-
 
     private ThreadLocalVar __createBypassTlv () {
         // prepare dynamic bypass thread local variable
-        final ThreadLocalVar result = new ThreadLocalVar (
-            null, "bypass", Type.getType (boolean.class), false
-        );
 
-        result.setInitialValue (false);
-        return result;
+        return new ThreadLocalVar (
+            null, "bypass", CD_boolean, false
+        );
     }
 
 
@@ -478,48 +477,58 @@ public final class DiSL {
             __dumpBytesToFile (originalBytes, "err.class");
         }
 
-        final byte [] transformedBytes = __transformers.apply (originalBytes);
-        final ClassNode inputCN = ClassNodeHelper.FULL.unmarshal (transformedBytes);
-        Reflection.systemClassLoader ().notifyClassLoaded (inputCN);
+        final byte [] transformedBytes = __transformers.apply(originalBytes); // this is done by the user
 
-        //
+        // TODO might use ClassModelHelper to pass some options instead of this
+        //  also for now the lines will need to be dropped since there can be cases where
+        //  there can be multiples lines represented by the same object
+        final ClassModel classModel = ClassFile.of(ClassFile.LineNumbersOption.DROP_LINE_NUMBERS, ClassLoaderFromJar.getTestResOption()).parse(transformedBytes);
+
+        //WriteInfo info = WriteInfo.getInstance();
+
+        Reflection.systemClassLoader ().notifyClassLoaded(classModel);
+
+        if (verifyClass) {
+            List<VerifyError> verifyErrors = ClassFile.of().verify(classModel);
+            if (!verifyErrors.isEmpty()) {
+//                info.writeLine("Class: " + classModel.thisClass().name() + " has " + verifyErrors.size() + " verify error/s");
+//                for (VerifyError verifyError: verifyErrors) {
+//                    info.writeLine("    err: " + verifyError.getMessage());
+//                }
+//                info.writeLine(">>>>>>> Excluded class " + classModel.thisClass().name());
+                __log.debug ("excluded class: %s because of verifyErrors", classModel.thisClass().name().stringValue());
+                return null;
+            }
+        }
+
         // Instrument the class. If the class is modified neither by DiSL,
         // nor by any of the transformers, bail out early and return NULL
         // to indicate that the class has not been modified in any way.
-        //
-        final InstrumentedClass instResult = instrumentClass (inputCN);
+        final InstrumentedClass instResult = instrumentClass(classModel);
         if (instResult == null && transformedBytes == originalBytes) {
             return null;
         }
 
-        // TODO LB: Try to avoid unmarshaling the class again (duplicate it).
-        final ClassNode origCN = ClassNodeHelper.FULL.unmarshal (transformedBytes);
+        final ClassModel originalClassModel = ClassFile.of().parse(transformedBytes);
+        byte[] instrumentedBytes = instResult.instrumentedClassBytes;
 
-        //
         // If creating bypass code is requested, merge the original method code
         // with the instrumented method code and create code to switch between
         // the two versions based on the result of a bypass check.
-        //
-        final ClassNode instCN = instResult.classNode;
         if (__codeOptions.contains (CodeOption.CREATE_BYPASS)) {
-            CodeMerger.mergeOriginalCode (
-                instResult.changedMethods, origCN, instCN
-            );
+            ClassModel instrumentedClass = ClassFile.of().parse(instrumentedBytes);
+            instrumentedBytes = CodeMerger.mergeOriginalCode(originalClassModel, instrumentedClass, instResult.changedMethods);
         }
 
 
         //
         // Fix-up methods that have become too long due to instrumentation.
-        // To split out the instrumented version of the method, we will need
-        // to preserve the instrumented version in the previous step.
-        //
-        // XXX LB: This will not help long methods produced by the transformers.
-        //
-        CodeMerger.fixupLongMethods (
-            __codeOptions.contains (CodeOption.SPLIT_METHODS), origCN, instCN
-        );
+        byte [] fixed = CodeMerger.fixLongMethods(ClassFile.of().parse(instrumentedBytes), originalClassModel);
+        if (fixed != null) {
+            instrumentedBytes = fixed;
+        }
 
-        return ClassNodeHelper.marshal (instCN);
+        return instrumentedBytes;
     }
 
 
@@ -612,9 +621,7 @@ public final class DiSL {
          */
         public static Set <CodeOption> setOf (final CodeOption... options) {
             final EnumSet <CodeOption> result = EnumSet.noneOf (CodeOption.class);
-            for (final CodeOption option : options) {
-                result.add (option);
-            }
+            result.addAll(Arrays.asList(options));
 
             return result;
         }

@@ -1,9 +1,9 @@
 package ch.usi.dag.disl.marker;
 
+import ch.usi.dag.disl.util.MethodModelCopy;
+
 import java.util.LinkedList;
 import java.util.List;
-
-import org.objectweb.asm.tree.MethodNode;
 
 
 /**
@@ -12,7 +12,7 @@ import org.objectweb.asm.tree.MethodNode;
 public class EmptyMarker extends AbstractMarker {
 
     @Override
-    public List <MarkedRegion> mark (final MethodNode method) {
-        return new LinkedList <MarkedRegion> ();
+    public List<MarkedRegion> mark(final MethodModelCopy method) {
+        return new LinkedList<>();
     }
 }

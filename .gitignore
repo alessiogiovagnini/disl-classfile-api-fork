@@ -18,4 +18,8 @@ methodid.txt
 .idea
 
 disl-classfile-api.iml
+.DS_Store
+classes/*
+src-disl-agent
 
+serialized.txt

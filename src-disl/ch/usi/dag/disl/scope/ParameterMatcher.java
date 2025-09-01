@@ -1,11 +1,12 @@
 package ch.usi.dag.disl.scope;
 
+import java.lang.constant.ClassDesc;
+import java.lang.constant.MethodTypeDesc;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-import org.objectweb.asm.Type;
 
 import ch.usi.dag.disl.util.JavaNames;
 
@@ -48,22 +49,23 @@ abstract class ParameterMatcher {
         private final TypeMatcher [] __suffixCard;
 
         private Generic (
-            final String pattern, final List <TypeMatcher []> cards
+                final String pattern, final List <TypeMatcher []> cards
         ) {
             super (pattern);
 
-            __prefixCard = cards.get (0);
-            __suffixCard = cards.get (cards.size () - 1);
+            __prefixCard = cards.getFirst();
+            __suffixCard = cards.getLast();
             __cards = cards.stream ()
-                .filter (a -> a.length > 0)
-                .toArray (size -> new TypeMatcher [size][]);
+                    .filter (a -> a.length > 0)
+                    .toArray (TypeMatcher[][]::new);
         }
 
         //
 
         @Override
         public boolean match (final String methodDesc) {
-            final Type [] params = Type.getArgumentTypes (methodDesc);
+            final MethodTypeDesc methodTypeDesc = MethodTypeDesc.ofDescriptor(methodDesc);
+            final ClassDesc[] params = methodTypeDesc.parameterArray();
 
             int paramsFromInclusive = 0;
             int paramsToExclusive = params.length;
@@ -120,8 +122,8 @@ abstract class ParameterMatcher {
         }
 
         private boolean __matchCard (
-            final TypeMatcher [] card, final Type [] params,
-            final int fromInclusive, final int toExclusive
+                final TypeMatcher [] card, final ClassDesc [] params,
+                final int fromInclusive, final int toExclusive
         ) {
             if (card.length > (toExclusive - fromInclusive)) {
                 // not enough parameters to match the card
@@ -130,8 +132,8 @@ abstract class ParameterMatcher {
 
             int paramIndex = fromInclusive;
             for (final TypeMatcher matcher : card) {
-                final Type param = params [paramIndex++];
-                if (!matcher.match (param.getDescriptor ())) {
+                final ClassDesc param = params [paramIndex++];
+                if (!matcher.match (param.descriptorString())) {
                     return false;
                 }
             }
@@ -140,8 +142,8 @@ abstract class ParameterMatcher {
         }
 
         private int __indexOf (
-            final TypeMatcher [] card, final Type [] params,
-            final int fromInclusive, final int toExclusive
+                final TypeMatcher [] card, final ClassDesc [] params,
+                final int fromInclusive, final int toExclusive
         ) {
             for (int index = fromInclusive; index < toExclusive; index++) {
                 if (__matchCard (card, params, index, toExclusive)) {
@@ -223,21 +225,21 @@ abstract class ParameterMatcher {
         final List <TypeMatcher> card = new ArrayList <> ();
 
         __splitter__.splitAsStream (pattern)
-            .map (String::trim)
-            .map (s -> s.isEmpty () ? WildCardMatcher.WILDCARD : s)
-            .forEachOrdered (s -> {
-                if (!s.equals (WILDCARD)) {
-                    card.add (TypeMatcher.forPattern (s));
+                .map (String::trim)
+                .map (s -> s.isEmpty () ? WildCardMatcher.WILDCARD : s)
+                .forEachOrdered (s -> {
+                    if (!s.equals (WILDCARD)) {
+                        card.add (TypeMatcher.forPattern (s));
 
-                } else {
-                    // flush current card
-                    result.add (card.toArray (new TypeMatcher [card.size ()]));
-                    card.clear ();
-                }
-            });
+                    } else {
+                        // flush current card
+                        result.add (card.toArray (new TypeMatcher[0]));
+                        card.clear ();
+                    }
+                });
 
         // flush last card
-        result.add (card.toArray (new TypeMatcher [card.size ()]));
+        result.add (card.toArray (new TypeMatcher[0]));
         return result;
     }
 

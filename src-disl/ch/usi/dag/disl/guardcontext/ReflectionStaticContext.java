@@ -1,11 +1,12 @@
 package ch.usi.dag.disl.guardcontext;
-
-import org.objectweb.asm.tree.MethodNode;
-
 import ch.usi.dag.disl.Reflection;
 import ch.usi.dag.disl.Reflection.Class;
 import ch.usi.dag.disl.Reflection.Method;
 import ch.usi.dag.disl.staticcontext.AbstractStaticContext;
+import ch.usi.dag.disl.util.MethodModelCopy;
+
+import java.lang.classfile.MethodModel;
+import java.util.Optional;
 
 
 /**
@@ -19,14 +20,15 @@ import ch.usi.dag.disl.staticcontext.AbstractStaticContext;
 public final class ReflectionStaticContext extends AbstractStaticContext {
 
     public Class thisClass () {
-        return Reflection.systemClassLoader ().classForInternalName (
-            staticContextData.getClassNode ().name
-        ).get ();
+        return Reflection.systemClassLoader ().classForType (
+            staticContextData.getClassModel().thisClass().asSymbol()
+        ).orElse(null);
+        // TODO should this throw instead???
     }
 
     public Method thisMethod () {
-        final MethodNode mn = staticContextData.getMethodNode ();
-        return thisClass().methodForSignature (mn.name + mn.desc).get ();
+        final MethodModelCopy mn = staticContextData.getMethodModel();
+        return thisClass().methodForSignature (mn.methodName().stringValue() + mn.methodTypeSymbol().descriptorString()).orElse(null);
     }
 
 }
