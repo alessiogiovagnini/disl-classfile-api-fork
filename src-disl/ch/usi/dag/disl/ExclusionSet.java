@@ -59,7 +59,11 @@ public abstract class ExclusionSet {
             // The following cause trouble when instrumented.
             //
             "sun.instrument.*.*" /* Sun instrumentation classes */,
-            "java.lang.Object.finalize" /* Object finalizer */
+            "java.lang.Object.finalize" /* Object finalizer */,
+            "java.lang.classfile.*.*",  // classfile
+            "java.lang.classfile.*",
+            "jdk.internal.classfile.*.*",
+            "jdk.internal.classfile.*"
         };
 
         return Arrays.stream (exclusions)
